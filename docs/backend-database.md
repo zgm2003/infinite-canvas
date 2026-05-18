@@ -1,0 +1,234 @@
+# 后端数据库说明
+
+本文档记录后端当前已经使用，以及后续规划会用到的主要数据表。
+
+## 数据库
+
+后端使用 GORM 管理数据库连接和表结构迁移。
+
+支持的存储驱动：
+
+- `sqlite`
+- `mysql`
+- `postgresql`
+
+当前启动时执行 `AutoMigrate`，自动维护以下表：
+
+- `users`
+- `prompts`
+- `assets`
+
+后续新增表时，优先保持表数量少，能用字段或 JSON 表达的配置、状态、统计和扩展信息先不拆表。
+
+### users
+
+系统用户表。用户基础信息、角色、算力点余额和邀请关系放在该表中。
+
+| 字段              | 类型     | 说明                       |
+|-----------------|--------|--------------------------|
+| `id`            | string | 主键                       |
+| `username`      | string | 用户名，唯一索引                 |
+| `password`      | string | 密码哈希                     |
+| `email`         | string | 邮箱                       |
+| `display_name`  | string | 昵称                       |
+| `avatar_url`    | string | 头像地址                     |
+| `role`          | string | 角色：`user`、`admin`        |
+| `credits`       | number | 算力点余额，规划字段               |
+| `aff_code`      | string | 用户自己的邀请码，唯一索引，规划字段       |
+| `aff_count`     | number | 已邀请用户数量，冗余统计字段，规划字段      |
+| `inviter_id`    | string | 邀请人用户 ID，规划字段            |
+| `github_id`     | string | GitHub 用户 ID，规划字段        |
+| `linux_do_id`   | string | Linux.do 用户 ID，规划字段      |
+| `wechat_id`     | string | 微信用户 ID，规划字段             |
+| `status`        | string | 用户状态：`active`、`ban`，规划字段 |
+| `last_login_at` | string | 最近登录时间                   |
+| `extra`         | json   | 扩展信息                     |
+| `created_at`    | string | 创建时间                     |
+| `updated_at`    | string | 更新时间                     |
+
+### prompts
+
+提示词表。后续公开提示词、内置 GitHub 系统提示词、分类和扩展信息都优先放在该表字段或 JSON 中。
+
+| 字段           | 类型     | 说明                           |
+|--------------|--------|------------------------------|
+| `id`         | string | 主键                           |
+| `title`      | string | 标题                           |
+| `cover_url`  | string | 封面图                          |
+| `prompt`     | string | 提示词内容                        |
+| `tags`       | json   | 标签列表                         |
+| `category`   | string | 分类标识                         |
+| `visibility` | string | 可见性：公开、私有、系统内置等，规划字段         |
+| `preview`    | text   | Markdown 展示内容，可包含文本、图片、视频链接等 |
+| `extra`      | json   | 扩展信息                         |
+| `created_at` | string | 创建时间                         |
+| `updated_at` | string | 更新时间                         |
+
+`github_url` 仅用于接口返回，不写入数据库。
+
+### assets
+
+素材表。当前用于素材库；后续通过 `user_id`、`visibility`、`type` 区分系统公开素材和用户私有素材。
+
+| 字段               | 类型     | 说明                            |
+|------------------|--------|-------------------------------|
+| `id`             | string | 主键                            |
+| `user_id`        | string | 所属用户，为空或系统用户表示公开素材，规划字段       |
+| `title`          | string | 标题                            |
+| `type`           | string | 素材类型：`text`、`image`、`video` 等 |
+| `visibility`     | string | 可见性：公开、私有，规划字段                |
+| `cover_url`      | string | 封面图                           |
+| `tags`           | json   | 标签列表                          |
+| `category`       | string | 分类标识                          |
+| `description`    | string | 描述                            |
+| `content`        | text   | 文本或 Markdown 内容               |
+| `url`            | string | 图片、视频等媒体地址                    |
+| `like_count`     | number | 点赞量，规划字段                      |
+| `favorite_count` | number | 收藏量，规划字段                      |
+| `view_count`     | number | 查看量，规划字段                      |
+| `extra`          | json   | 扩展信息，规划字段                     |
+| `created_at`     | string | 创建时间                          |
+| `updated_at`     | string | 更新时间                          |
+
+### settings
+
+系统配置表，只保存两行数据：`public` 放前端可读取的公开配置，`private` 放仅后端和管理员可读取的私有配置，配置值都用 JSON。
+
+| 字段           | 类型     | 说明                    |
+|--------------|--------|-----------------------|
+| `key`        | string | 主键：`public`、`private` |
+| `value`      | json   | 配置内容                  |
+| `created_at` | string | 创建时间                  |
+| `updated_at` | string | 更新时间                  |
+
+`public.value` 常放前端展示和可公开读取的配置，例如模型列表、订阅套餐、功能开关等。
+`private.value` 常放渠道密钥、支付配置、奖励规则、后台内部开关等。
+
+### dicts
+
+字典表。一个字典一行，具体字典项数据放在 `items`。
+
+| 字段           | 类型     | 说明    |
+|--------------|--------|-------|
+| `code`       | string | 字典编码  |
+| `name`       | string | 字典名称  |
+| `remark`     | string | 备注    |
+| `items`      | text   | 字典值数据 |
+| `created_at` | string | 创建时间  |
+| `updated_at` | string | 更新时间  |
+
+可维护分类、标签、业务枚举、模型分类、日志类型等。
+
+### credit_logs
+
+用户算力点变更流水表。充值、消费、订阅扣减、邀请奖励、后台调整等余额变化都写入该表。
+
+| 字段           | 类型     | 说明                       |
+|--------------|--------|--------------------------|
+| `id`         | string | 主键                       |
+| `user_id`    | string | 关联用户 ID                  |
+| `type`       | string | 类型：充值、消费、订阅扣减、邀请奖励、后台调整等 |
+| `amount`     | number | 本次变动数量，增加为正，扣减为负         |
+| `balance`    | number | 变动后的用户算力点余额              |
+| `related_id` | string | 关联订单、任务或日志 ID，可为空        |
+| `remark`     | string | 备注                       |
+| `extra`      | json   | 扩展信息                     |
+| `created_at` | string | 创建时间                     |
+
+### orders
+
+订单表。统一记录充值、订阅购买等支付订单。
+
+| 字段                  | 类型     | 说明                   |
+|---------------------|--------|----------------------|
+| `id`                | string | 主键                   |
+| `user_id`           | string | 关联用户 ID              |
+| `type`              | string | 订单类型：充值、订阅等          |
+| `provider`          | string | 支付渠道：Linux LDC、聚合支付等 |
+| `amount`            | number | 支付金额                 |
+| `credits`           | number | 到账算力点                |
+| `status`            | string | 订单状态：待支付、已支付、失败、关闭等  |
+| `provider_order_id` | string | 第三方订单号               |
+| `extra`             | json   | 扩展信息                 |
+| `created_at`        | string | 创建时间                 |
+| `paid_at`           | string | 支付时间                 |
+| `updated_at`        | string | 更新时间                 |
+
+### subscriptions
+
+用户订阅表。一个用户可以有多个订阅记录，套餐配置放在 `settings.public.value` 中。
+
+| 字段              | 类型     | 说明                                       |
+|-----------------|--------|------------------------------------------|
+| `id`            | string | 主键                                       |
+| `user_id`       | string | 关联用户 ID                                  |
+| `plan_key`      | string | 套餐标识，对应 `settings.public.value` 中的订阅套餐配置 |
+| `order_id`      | string | 关联订单 ID，可为空                              |
+| `status`        | string | 状态：生效中、已过期、已取消等                          |
+| `total_credits` | number | 订阅总额度                                    |
+| `used_credits`  | number | 已使用额度                                    |
+| `started_at`    | string | 开始时间                                     |
+| `expired_at`    | string | 过期时间                                     |
+| `extra`         | json   | 扩展信息                                     |
+| `created_at`    | string | 创建时间                                     |
+| `updated_at`    | string | 更新时间                                     |
+
+### files
+
+文件表。用于统一管理上传图片、视频等文件，保存最终可访问地址。缩略图和视频封面优先按 URL 命名规则推导，特殊情况放在
+`extra.coverUrl`。
+
+| 字段           | 类型     | 说明          |
+|--------------|--------|-------------|
+| `id`         | string | 主键          |
+| `user_id`    | string | 上传用户 ID，可为空 |
+| `name`       | string | 原始文件名       |
+| `url`        | string | 完整可访问地址     |
+| `mime_type`  | string | MIME 类型     |
+| `size`       | number | 文件大小        |
+| `extra`      | json   | 扩展信息        |
+| `created_at` | string | 创建时间        |
+
+### canvases
+
+画布表。保存用户私有画布、公开画布和模板，分享、协作、审核等低频配置放在 `extra`。
+
+| 字段               | 类型     | 说明                                          |
+|------------------|--------|---------------------------------------------|
+| `id`             | string | 主键                                          |
+| `user_id`        | string | 所属用户 ID                                     |
+| `title`          | string | 画布标题                                        |
+| `description`    | string | 描述                                          |
+| `cover_url`      | string | 封面图                                         |
+| `data`           | json   | 画布节点、边、视图等数据                                |
+| `visibility`     | string | 可见性：`private`、`public`                      |
+| `status`         | string | 状态：`draft`、`pending`、`published`、`rejected` |
+| `is_template`    | bool   | 是否模板                                        |
+| `view_count`     | number | 查看量                                         |
+| `like_count`     | number | 点赞量                                         |
+| `favorite_count` | number | 收藏量                                         |
+| `copy_count`     | number | 复制量                                         |
+| `extra`          | json   | 扩展信息，如分享、协作、审核备注等                           |
+| `created_at`     | string | 创建时间                                        |
+| `updated_at`     | string | 更新时间                                        |
+
+### generation_tasks
+
+接口调用队列表。用于图片、文本、图生图等后端模型调用的排队、状态和结果记录。
+
+| 字段            | 类型     | 说明                   |
+|---------------|--------|----------------------|
+| `id`          | string | 主键                   |
+| `user_id`     | string | 发起用户 ID              |
+| `type`        | string | 任务类型：文本生成、文生图、图生图等   |
+| `model`       | string | 使用模型                 |
+| `channel`     | string | 使用渠道                 |
+| `status`      | string | 状态：排队中、执行中、成功、失败、取消等 |
+| `credits`     | number | 扣除算力点                |
+| `input`       | json   | 请求参数                 |
+| `output`      | json   | 生成结果                 |
+| `error`       | string | 错误信息                 |
+| `extra`       | json   | 扩展信息                 |
+| `created_at`  | string | 创建时间                 |
+| `started_at`  | string | 开始时间                 |
+| `finished_at` | string | 完成时间                 |
