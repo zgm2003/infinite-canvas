@@ -440,19 +440,20 @@ ID: PT-ASSET-001
 
 ## 部署和数据库迁移
 
-覆盖：`PT-DB-001`、`PT-DOCKER-001`。
+覆盖：`PT-DB-001`、`PT-DB-002`、`PT-DOCKER-001`。
 
 ### 验收前提
 
-- 使用一份新的 SQLite 数据目录或空数据库。
+- 使用一份新的 MySQL 数据库，例如 `infinite_canvas`。
 - 已准备 `.env`，确认 `DB_AUTO_MIGRATE=false`。
+- Docker 场景下 `.env` 已配置 `MYSQL_DSN`，指向宿主机已有 MySQL。
 
 ### 验收步骤
 
 1. 直接执行 `go run . migrate`，确认命令退出成功。
 2. 再执行 `go run .`，确认后端能启动，`GET /api/health` 返回 `ok`。
 3. 使用 Docker 镜像或 `docker compose -f docker-compose.local.yml up -d --build` 启动，确认启动脚本会先迁移再启动服务。
-4. 检查 SQLite 场景下数据库文件仍落在挂载的 `data` 目录。
+4. 检查迁移表写入 `MYSQL_DSN` 指向的 MySQL 数据库，Compose 服务列表不应出现本项目私有 MySQL 容器。
 5. 在一份新空库上先不执行迁移、直接启动后端，确认服务会失败并提示显式迁移；即使 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 置空禁用默认管理员，也不能绕过这个启动前检查。
 6. 用一份表存在但字段不完整的旧 schema 启动后端，确认服务同样失败并提示显式迁移。
 7. Docker 启动成功后，在容器内终止内部 Go API 进程，确认容器退出或被 compose 按 `restart` 策略重启，而不是 Next.js 独自继续运行。
@@ -463,6 +464,7 @@ ID: PT-ASSET-001
 - 服务启动本身不依赖启动时隐式迁移。
 - 未迁移空库或明显过期的 schema 不会被普通服务启动静默放行。
 - 显式迁移命令能创建当前应用表。
+- Docker 默认数据库落在 `MYSQL_DSN` 指向的 MySQL 库，不落在 SQLite 文件。
 - Docker 启动路径不要求用户手动进入容器补迁移。
 - Docker 运行时不会出现 Go API 或 Next.js 单边退出后的半活容器。
 

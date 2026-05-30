@@ -72,7 +72,8 @@
 
 | ID | 状态 | 待测变更 | 重点验证 |
 | --- | --- | --- | --- |
-| PT-DB-001 | 待测 | 后端默认关闭启动自动迁移，新增显式迁移命令 `go run . migrate` / `/app/server migrate`；普通启动会先检查应用表和字段是否存在，缺表或旧 schema 缺字段时直接失败并提示显式迁移；Docker 镜像启动脚本会先执行迁移再启动服务。 | 新环境先不执行迁移直接启动，确认服务不会在空库上继续运行；用旧字段不完整的数据库启动时也应失败；再执行显式迁移后启动服务，确认管理员初始化、健康检查和页面访问正常；Docker 部署确认数据仍落在挂载的 `data` 目录。 |
+| PT-DB-001 | 待测 | 后端默认关闭启动自动迁移，新增显式迁移命令 `go run . migrate` / `/app/server migrate`；普通启动会先检查应用表和字段是否存在，缺表或旧 schema 缺字段时直接失败并提示显式迁移；Docker 镜像启动脚本会先执行迁移再启动服务。 | 新环境先不执行迁移直接启动，确认服务不会在空库上继续运行；用旧字段不完整的数据库启动时也应失败；再执行显式迁移后启动服务，确认管理员初始化、健康检查和页面访问正常。 |
+| PT-DB-002 | 待测 | Docker Compose 默认改为连接宿主机已有 MySQL：`.env` 使用 `MYSQL_DSN`，连接池支持 `MYSQL_MAX_OPEN_CONNS`、`MYSQL_MAX_IDLE_CONNS`、`MYSQL_CONN_MAX_LIFETIME`，Compose 不再启动项目私有 MySQL 容器。 | 确认目标 MySQL 已存在 `infinite_canvas` 数据库；执行 Docker Compose 启动后确认迁移表写入该库，`/api/health` 正常，且 compose 服务列表里只有应用容器。 |
 | PT-DOCKER-001 | 待测 | Docker 运行入口改为 Node supervisor：迁移成功后同时启动内部 Go API 和 Next.js，并在任一子进程退出时终止另一个进程，让容器退出。 | Docker 启动后分别模拟 Go API 或 Next.js 子进程退出，确认容器会退出或被 compose 重启，而不是只剩另一个进程继续“半活”运行。 |
 
 ## 维护规则

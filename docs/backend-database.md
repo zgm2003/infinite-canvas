@@ -13,6 +13,23 @@
 - `postgres`
 - `postgresql`
 
+当前 Docker Compose 默认连接宿主机已有 MySQL，不随项目再启动一个 MySQL 容器。`.env` 中使用：
+
+```env
+STORAGE_DRIVER=mysql
+MYSQL_DSN=root:change_me@tcp(host.docker.internal:3307)/infinite_canvas?charset=utf8mb4&parseTime=True&loc=Local
+DATABASE_DSN=root:change_me@tcp(host.docker.internal:3307)/infinite_canvas?charset=utf8mb4&parseTime=True&loc=Local
+MYSQL_MAX_OPEN_CONNS=20
+MYSQL_MAX_IDLE_CONNS=10
+MYSQL_CONN_MAX_LIFETIME=1h
+```
+
+`STORAGE_DRIVER` 为默认值或 `mysql` 时，`MYSQL_DSN` 会覆盖 `DATABASE_DSN`；`DATABASE_DSN` 同值保留给旧镜像和非 MySQL 配置。首次运行前先在目标 MySQL 创建本项目独立数据库：
+
+```sql
+CREATE DATABASE IF NOT EXISTS infinite_canvas CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
 数据库迁移由显式命令执行，当前迁移维护以下表：
 
 - `users`

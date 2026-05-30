@@ -23,8 +23,10 @@
 后端通过 GORM 初始化数据库。默认 `DB_AUTO_MIGRATE=false`，服务启动不主动改表；初始化或发布时用 `go run . migrate` 或镜像内 `/app/server migrate` 显式迁移。普通启动会先检查当前迁移表和字段是否存在，未迁移或旧 schema 缺字段时直接失败并提示先执行显式迁移，不再依赖默认管理员初始化间接暴露缺表问题。开发想省步骤时可临时设为 `DB_AUTO_MIGRATE=true`。
 
 - 支持驱动：`sqlite`、`mysql`、`postgres` / `postgresql`。
-- 默认驱动：`sqlite`。
-- 默认 DSN：`data/infinite-canvas.db`。
+- 默认驱动：`mysql`。
+- Docker Compose 默认只启动应用容器，并通过 `MYSQL_DSN` 连接宿主机已有 MySQL，例如 `host.docker.internal:3307` 上的 `infinite_canvas` 数据库。
+- `STORAGE_DRIVER` 为默认值或 `mysql` 时，`MYSQL_DSN` 会覆盖 `DATABASE_DSN`；MySQL 连接池通过 `MYSQL_MAX_OPEN_CONNS`、`MYSQL_MAX_IDLE_CONNS`、`MYSQL_CONN_MAX_LIFETIME` 配置。
+- `render.yaml` 仍显式使用 `sqlite`，只适合体验和演示。
 - 当前迁移表：`users`、`credit_logs`、`prompts`、`assets`、`settings`。
 - 详细字段以 `docs/backend-database.md` 为准。
 

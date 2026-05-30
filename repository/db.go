@@ -40,7 +40,7 @@ func DB() (*gorm.DB, error) {
 		driver = "sqlite"
 	}
 	dsn := config.Cfg.DatabaseDSN
-	key := fmt.Sprintf("%s\x00%s\x00%t", driver, dsn, config.Cfg.AutoMigrate)
+	key := fmt.Sprintf("%s\x00%s\x00%t\x00%d\x00%d\x00%s", driver, dsn, config.Cfg.AutoMigrate, config.Cfg.MySQLMaxOpenConns, config.Cfg.MySQLMaxIdleConns, config.Cfg.MySQLConnMaxLifetime)
 	if db != nil && dbKey == key {
 		return db, nil
 	}
@@ -56,6 +56,12 @@ func DB() (*gorm.DB, error) {
 	}
 	database, err := gorm.Open(dialector(driver, dsn), &gorm.Config{})
 	if err != nil {
+		return nil, err
+	}
+	if err := applyPoolConfig(driver, database); err != nil {
+		if sqlDB, dbErr := database.DB(); dbErr == nil {
+			_ = sqlDB.Close()
+		}
 		return nil, err
 	}
 	if config.Cfg.AutoMigrate {
@@ -116,6 +122,26 @@ func migratedModels() []any {
 		&model.Asset{},
 		&model.Setting{},
 	}
+}
+
+func applyPoolConfig(driver string, database *gorm.DB) error {
+	if driver != "mysql" {
+		return nil
+	}
+	sqlDB, err := database.DB()
+	if err != nil {
+		return err
+	}
+	if config.Cfg.MySQLMaxOpenConns > 0 {
+		sqlDB.SetMaxOpenConns(config.Cfg.MySQLMaxOpenConns)
+	}
+	if config.Cfg.MySQLMaxIdleConns > 0 {
+		sqlDB.SetMaxIdleConns(config.Cfg.MySQLMaxIdleConns)
+	}
+	if config.Cfg.MySQLConnMaxLifetime > 0 {
+		sqlDB.SetConnMaxLifetime(config.Cfg.MySQLConnMaxLifetime)
+	}
+	return nil
 }
 
 func dialector(driver string, dsn string) gorm.Dialector {
