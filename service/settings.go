@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -106,15 +107,7 @@ func normalizePrivateSetting(setting model.PrivateSetting) model.PrivateSetting 
 	}
 	setting.PromptSync = normalizePromptSyncSetting(setting.PromptSync)
 	for i := range setting.Channels {
-		if setting.Channels[i].Protocol == "" {
-			setting.Channels[i].Protocol = "openai"
-		}
-		if setting.Channels[i].Models == nil {
-			setting.Channels[i].Models = []string{}
-		}
-		if setting.Channels[i].Weight <= 0 {
-			setting.Channels[i].Weight = 1
-		}
+		setting.Channels[i] = normalizeModelChannel(setting.Channels[i])
 	}
 	return setting
 }
@@ -187,7 +180,20 @@ func BuildModelChannelURL(channel model.ModelChannel, path string) string {
 	return baseURL + path
 }
 
+func isValidModelChannelBaseURL(baseURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return false
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false
+	}
+	return parsed.Host != ""
+}
+
 func normalizeModelChannel(channel model.ModelChannel) model.ModelChannel {
+	channel.BaseURL = strings.TrimSpace(channel.BaseURL)
+	channel.APIKey = strings.TrimSpace(channel.APIKey)
 	if channel.Protocol == "" {
 		channel.Protocol = "openai"
 	}
@@ -228,6 +234,9 @@ func resolveAdminChannel(index *int, channel model.ModelChannel) (model.ModelCha
 	if strings.TrimSpace(resolved.BaseURL) == "" {
 		return model.ModelChannel{}, safeMessageError{message: "缺少接口地址", status: http.StatusBadRequest}
 	}
+	if !isValidModelChannelBaseURL(resolved.BaseURL) {
+		return model.ModelChannel{}, safeMessageError{message: "接口地址格式错误", status: http.StatusBadRequest}
+	}
 	if strings.TrimSpace(resolved.APIKey) == "" {
 		return model.ModelChannel{}, safeMessageError{message: "缺少 API Key", status: http.StatusBadRequest}
 	}
@@ -257,7 +266,9 @@ func fetchAdminChannelModels(channel model.ModelChannel) ([]string, error) {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	_ = json.Unmarshal(body, &payload)
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, safeMessageError{message: "读取模型失败", status: http.StatusBadGateway}
+	}
 	result := make([]string, 0, len(payload.Data))
 	for _, item := range payload.Data {
 		if strings.TrimSpace(item.ID) != "" {
@@ -304,11 +315,13 @@ func testAdminChannelModel(channel model.ModelChannel, modelName string) (string
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	_ = json.Unmarshal(responseBody, &payload)
+	if err := json.Unmarshal(responseBody, &payload); err != nil {
+		return "", safeMessageError{message: "测试失败", status: http.StatusBadGateway}
+	}
 	if len(payload.Choices) > 0 && strings.TrimSpace(payload.Choices[0].Message.Content) != "" {
 		return payload.Choices[0].Message.Content, nil
 	}
-	return "ok", nil
+	return "", safeMessageError{message: "测试失败", status: http.StatusBadGateway}
 }
 
 func readAdminChannelError(body []byte, statusCode int, fallback string) error {

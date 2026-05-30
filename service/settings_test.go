@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/basketikun/infinite-canvas/model"
+	"github.com/basketikun/infinite-canvas/repository"
 )
 
 func TestAdminChannelValidationCarriesBadRequestStatus(t *testing.T) {
@@ -16,6 +17,108 @@ func TestAdminChannelValidationCarriesBadRequestStatus(t *testing.T) {
 	}
 	if _, err := AdminChannelModels(nil, model.ModelChannel{BaseURL: "https://example.invalid"}); statusCode(err) != http.StatusBadRequest {
 		t.Fatalf("expected missing API key to carry HTTP 400, got %T %v", err, err)
+	}
+}
+
+func TestAdminChannelInvalidBaseURLCarriesBadRequestStatus(t *testing.T) {
+	setupServiceTestDB(t)
+	channel := model.ModelChannel{BaseURL: "://bad", APIKey: "test-key"}
+
+	if _, err := AdminChannelModels(nil, channel); statusCode(err) != http.StatusBadRequest {
+		t.Fatalf("expected malformed base URL to carry HTTP 400, got %T %v", err, err)
+	}
+	if _, err := AdminTestChannelModel(nil, channel, "gpt-test"); statusCode(err) != http.StatusBadRequest {
+		t.Fatalf("expected malformed test base URL to carry HTTP 400, got %T %v", err, err)
+	}
+}
+
+func TestAdminChannelBaseURLWhitespaceIsTrimmedBeforeRequest(t *testing.T) {
+	setupServiceTestDB(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/models":
+			_, _ = w.Write([]byte(`{"data":[{"id":"gpt-test"}]}`))
+		case "/v1/chat/completions":
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"pong"}}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+	channel := model.ModelChannel{BaseURL: " \t" + upstream.URL + "/ \n", APIKey: "test-key"}
+
+	models, err := AdminChannelModels(nil, channel)
+	if err != nil {
+		t.Fatalf("expected whitespace-padded base URL to fetch models, got %T %v", err, err)
+	}
+	if len(models) != 1 || models[0] != "gpt-test" {
+		t.Fatalf("expected fetched model list, got %#v", models)
+	}
+	result, err := AdminTestChannelModel(nil, channel, "gpt-test")
+	if err != nil {
+		t.Fatalf("expected whitespace-padded base URL to test model, got %T %v", err, err)
+	}
+	if result != "pong" {
+		t.Fatalf("expected test response content, got %q", result)
+	}
+}
+
+func TestAdminChannelWhitespaceAPIKeyFallsBackToSavedChannel(t *testing.T) {
+	setupServiceTestDB(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer saved-key" {
+			t.Fatalf("expected saved API key, got %q", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-test"}]}`))
+	}))
+	defer upstream.Close()
+	if _, err := repository.SaveSettings(model.Settings{
+		Private: model.PrivateSetting{Channels: []model.ModelChannel{{
+			Name:    "saved",
+			BaseURL: upstream.URL,
+			APIKey:  "saved-key",
+		}}},
+	}, "now"); err != nil {
+		t.Fatal(err)
+	}
+	index := 0
+	channel := model.ModelChannel{Name: "saved", BaseURL: upstream.URL, APIKey: " \t "}
+
+	models, err := AdminChannelModels(&index, channel)
+	if err != nil {
+		t.Fatalf("expected whitespace API key to reuse saved key, got %T %v", err, err)
+	}
+	if len(models) != 1 || models[0] != "gpt-test" {
+		t.Fatalf("expected fetched model list, got %#v", models)
+	}
+}
+
+func TestSaveSettingsTrimsModelChannelBaseURLAndAPIKey(t *testing.T) {
+	setupServiceTestDB(t)
+
+	if _, err := SaveSettings(model.Settings{
+		Private: model.PrivateSetting{Channels: []model.ModelChannel{{
+			Name:    "saved",
+			BaseURL: " \thttps://api.example.invalid/ \n",
+			APIKey:  " saved-key \n",
+		}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := repository.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Private.Channels) != 1 {
+		t.Fatalf("expected one saved channel, got %#v", saved.Private.Channels)
+	}
+	if saved.Private.Channels[0].BaseURL != "https://api.example.invalid/" {
+		t.Fatalf("expected trimmed base URL, got %q", saved.Private.Channels[0].BaseURL)
+	}
+	if saved.Private.Channels[0].APIKey != "saved-key" {
+		t.Fatalf("expected trimmed API key, got %q", saved.Private.Channels[0].APIKey)
 	}
 }
 
@@ -86,6 +189,49 @@ func TestAdminChannelHTTP200BusinessErrorsCarryBadGatewayStatus(t *testing.T) {
 			}
 			if _, err := AdminTestChannelModel(nil, channel, "gpt-test"); statusCode(err) != http.StatusBadGateway {
 				t.Fatalf("expected model test HTTP 200 business error to carry HTTP 502, got %T %v", err, err)
+			}
+		})
+	}
+}
+
+func TestAdminChannelHTTP200InvalidJSONCarriesBadGatewayStatus(t *testing.T) {
+	setupServiceTestDB(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`not json`))
+	}))
+	defer upstream.Close()
+	channel := model.ModelChannel{BaseURL: upstream.URL, APIKey: "test-key"}
+
+	if _, err := AdminChannelModels(nil, channel); statusCode(err) != http.StatusBadGateway {
+		t.Fatalf("expected model fetch invalid JSON to carry HTTP 502, got %T %v", err, err)
+	}
+	if _, err := AdminTestChannelModel(nil, channel, "gpt-test"); statusCode(err) != http.StatusBadGateway {
+		t.Fatalf("expected model test invalid JSON to carry HTTP 502, got %T %v", err, err)
+	}
+}
+
+func TestAdminChannelTestModelMissingContentCarriesBadGatewayStatus(t *testing.T) {
+	setupServiceTestDB(t)
+
+	for _, tt := range []struct {
+		name string
+		body string
+	}{
+		{name: "missing choices", body: `{}`},
+		{name: "empty choices", body: `{"choices":[]}`},
+		{name: "empty content", body: `{"choices":[{"message":{"content":" "}}]}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer upstream.Close()
+			channel := model.ModelChannel{BaseURL: upstream.URL, APIKey: "test-key"}
+
+			if _, err := AdminTestChannelModel(nil, channel, "gpt-test"); statusCode(err) != http.StatusBadGateway {
+				t.Fatalf("expected model test missing content to carry HTTP 502, got %T %v", err, err)
 			}
 		})
 	}
