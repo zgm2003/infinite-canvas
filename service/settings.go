@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -149,7 +150,7 @@ func findSavedChannel(channel model.ModelChannel, saved []model.ModelChannel, in
 			return item, true
 		}
 	}
-	if index < len(saved) {
+	if index >= 0 && index < len(saved) {
 		return saved[index], true
 	}
 	return model.ModelChannel{}, false
@@ -225,10 +226,10 @@ func resolveAdminChannel(index *int, channel model.ModelChannel) (model.ModelCha
 		}
 	}
 	if strings.TrimSpace(resolved.BaseURL) == "" {
-		return model.ModelChannel{}, safeMessageError{message: "缺少接口地址"}
+		return model.ModelChannel{}, safeMessageError{message: "缺少接口地址", status: http.StatusBadRequest}
 	}
 	if strings.TrimSpace(resolved.APIKey) == "" {
-		return model.ModelChannel{}, safeMessageError{message: "缺少 API Key"}
+		return model.ModelChannel{}, safeMessageError{message: "缺少 API Key", status: http.StatusBadRequest}
 	}
 	return resolved, nil
 }
@@ -241,12 +242,15 @@ func fetchAdminChannelModels(channel model.ModelChannel) ([]string, error) {
 	request.Header.Set("Authorization", "Bearer "+channel.APIKey)
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return nil, err
+		return nil, safeMessageError{message: "读取模型失败", status: http.StatusBadGateway}
 	}
 	defer response.Body.Close()
 	body, _ := io.ReadAll(response.Body)
 	if response.StatusCode >= http.StatusBadRequest {
 		return nil, readAdminChannelError(body, response.StatusCode, "读取模型失败")
+	}
+	if err := readAdminChannelBusinessError(body, "读取模型失败"); err != nil {
+		return nil, err
 	}
 	var payload struct {
 		Data []struct {
@@ -266,7 +270,7 @@ func fetchAdminChannelModels(channel model.ModelChannel) ([]string, error) {
 
 func testAdminChannelModel(channel model.ModelChannel, modelName string) (string, error) {
 	if strings.TrimSpace(modelName) == "" {
-		return "", errors.New("缺少模型名称")
+		return "", safeMessageError{message: "缺少模型名称", status: http.StatusBadRequest}
 	}
 	body, _ := json.Marshal(map[string]any{
 		"model": modelName,
@@ -283,12 +287,15 @@ func testAdminChannelModel(channel model.ModelChannel, modelName string) (string
 	request.Header.Set("Content-Type", "application/json")
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return "", err
+		return "", safeMessageError{message: "测试失败", status: http.StatusBadGateway}
 	}
 	defer response.Body.Close()
 	responseBody, _ := io.ReadAll(response.Body)
 	if response.StatusCode >= http.StatusBadRequest {
 		return "", readAdminChannelError(responseBody, response.StatusCode, "测试失败")
+	}
+	if err := readAdminChannelBusinessError(responseBody, "测试失败"); err != nil {
+		return "", err
 	}
 	var payload struct {
 		Choices []struct {
@@ -305,31 +312,122 @@ func testAdminChannelModel(channel model.ModelChannel, modelName string) (string
 }
 
 func readAdminChannelError(body []byte, statusCode int, fallback string) error {
-	var payload struct {
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-		Msg string `json:"msg"`
-	}
-	if len(body) > 0 && json.Unmarshal(body, &payload) == nil {
-		if payload.Error != nil && strings.TrimSpace(payload.Error.Message) != "" {
-			return safeMessageError{message: payload.Error.Message}
-		}
-		if strings.TrimSpace(payload.Msg) != "" {
-			return safeMessageError{message: payload.Msg}
+	if payload, ok := parseAdminChannelErrorPayload(body); ok {
+		if message := adminChannelErrorMessage(payload); message != "" {
+			return safeMessageError{message: message, status: http.StatusBadGateway}
 		}
 	}
 	if statusCode == http.StatusUnauthorized {
-		return safeMessageError{message: "上游接口认证失败（401），请检查 API Key"}
+		return safeMessageError{message: "上游接口认证失败（401），请检查 API Key", status: http.StatusBadGateway}
 	}
 	if statusCode > 0 {
-		return safeMessageError{message: fmt.Sprintf("%s：%d", fallback, statusCode)}
+		return safeMessageError{message: fmt.Sprintf("%s：%d", fallback, statusCode), status: http.StatusBadGateway}
 	}
-	return safeMessageError{message: fallback}
+	return safeMessageError{message: fallback, status: http.StatusBadGateway}
+}
+
+func readAdminChannelBusinessError(body []byte, fallback string) error {
+	payload, ok := parseAdminChannelErrorPayload(body)
+	if !ok || !adminChannelBusinessFailed(payload) {
+		return nil
+	}
+	message := adminChannelErrorMessage(payload)
+	if message == "" {
+		message = fallback
+	}
+	return safeMessageError{message: message, status: http.StatusBadGateway}
+}
+
+type adminChannelErrorPayload struct {
+	Error   json.RawMessage `json:"error"`
+	Code    json.RawMessage `json:"code"`
+	Status  string          `json:"status"`
+	Success *bool           `json:"success"`
+	Msg     string          `json:"msg"`
+	Message string          `json:"message"`
+}
+
+func parseAdminChannelErrorPayload(body []byte) (adminChannelErrorPayload, bool) {
+	var payload adminChannelErrorPayload
+	if len(bytes.TrimSpace(body)) == 0 {
+		return payload, false
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return payload, false
+	}
+	return payload, true
+}
+
+func adminChannelErrorMessage(payload adminChannelErrorPayload) string {
+	if message := adminChannelRawErrorMessage(payload.Error); message != "" {
+		return message
+	}
+	if strings.TrimSpace(payload.Msg) != "" {
+		return strings.TrimSpace(payload.Msg)
+	}
+	return strings.TrimSpace(payload.Message)
+}
+
+func adminChannelRawErrorMessage(raw json.RawMessage) string {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) || bytes.Equal(raw, []byte("false")) || bytes.Equal(raw, []byte(`""`)) {
+		return ""
+	}
+	var payload struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(raw, &payload) == nil && strings.TrimSpace(payload.Message) != "" {
+		return strings.TrimSpace(payload.Message)
+	}
+	var message string
+	if json.Unmarshal(raw, &message) == nil {
+		return strings.TrimSpace(message)
+	}
+	return ""
+}
+
+func adminChannelBusinessFailed(payload adminChannelErrorPayload) bool {
+	if adminChannelCodeFailed(payload.Code) {
+		return true
+	}
+	if payload.Success != nil && !*payload.Success {
+		return true
+	}
+	rawError := bytes.TrimSpace(payload.Error)
+	if len(rawError) > 0 &&
+		!bytes.Equal(rawError, []byte("null")) &&
+		!bytes.Equal(rawError, []byte("false")) &&
+		!bytes.Equal(rawError, []byte(`""`)) {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(payload.Status)) {
+	case "error", "failed", "cancelled", "canceled":
+		return true
+	default:
+		return false
+	}
+}
+
+func adminChannelCodeFailed(raw json.RawMessage) bool {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return false
+	}
+	var numeric float64
+	if json.Unmarshal(raw, &numeric) == nil {
+		return numeric != 0
+	}
+	var text string
+	if json.Unmarshal(raw, &text) != nil {
+		return false
+	}
+	text = strings.ToLower(strings.TrimSpace(text))
+	return text != "" && text != "0" && text != "ok" && text != "success"
 }
 
 type safeMessageError struct {
 	message string
+	status  int
 }
 
 func (err safeMessageError) Error() string {
@@ -338,6 +436,10 @@ func (err safeMessageError) Error() string {
 
 func (err safeMessageError) SafeMessage() string {
 	return err.message
+}
+
+func (err safeMessageError) StatusCode() int {
+	return err.status
 }
 
 func modelChannelsForModel(channels []model.ModelChannel, modelName string) []model.ModelChannel {

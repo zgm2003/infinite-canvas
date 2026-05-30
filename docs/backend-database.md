@@ -10,15 +10,32 @@
 
 - `sqlite`
 - `mysql`
+- `postgres`
 - `postgresql`
 
-当前启动时执行 `AutoMigrate`，自动维护以下表：
+数据库迁移由显式命令执行，当前迁移维护以下表：
 
 - `users`
 - `credit_logs`
 - `prompts`
 - `assets`
 - `settings`
+
+默认 `DB_AUTO_MIGRATE=false`，服务启动只打开数据库连接，不主动改表结构。发布或初始化数据库时执行迁移命令：
+
+```bash
+go run . migrate
+```
+
+Docker 镜像内等价命令是：
+
+```bash
+/app/server migrate
+```
+
+开发时如果想省掉显式迁移步骤，可以临时设置 `DB_AUTO_MIGRATE=true`，让服务启动时执行 AutoMigrate。受控部署不要依赖这个开关；否则应用启动和 schema 变更会重新绑死。
+
+关闭启动迁移时必须先保证目标数据库已经完成迁移；普通服务启动会先检查当前应用表和字段是否存在，缺表或旧 schema 缺字段时直接失败并提示执行显式迁移。这个检查不依赖默认管理员初始化，即使禁用了默认管理员，也不会让服务在空库或明显过期的 schema 上继续启动。
 
 后续新增表时再同步补充本文档，未实际使用的规划表不提前写入。
 
@@ -74,13 +91,13 @@
 |------------------|--------|-------------------------------|
 | `id`             | string | 主键                            |
 | `title`          | string | 标题                            |
-| `type`           | string | 素材类型：`text`、`image`、`video` 等 |
+| `type`           | string | 当前后台素材库支持的素材类型：`text`、`image` |
 | `cover_url`      | string | 封面图                           |
 | `tags`           | json   | 标签列表                          |
 | `category`       | string | 分类标识                          |
 | `description`    | string | 描述                            |
 | `content`        | text   | 文本或 Markdown 内容               |
-| `url`            | string | 图片、视频等媒体地址                    |
+| `url`            | string | 图片等媒体地址                       |
 | `created_at`     | string | 创建时间                          |
 | `updated_at`     | string | 更新时间                          |
 
@@ -181,9 +198,9 @@
 | `type`       | string | 类型：`admin_adjust`、`ai_consume`、`ai_refund` |
 | `amount`     | number | 本次变动数量，增加为正，扣减为负         |
 | `balance`    | number | 变动后的用户算力点余额              |
-| `related_id` | string | 关联业务 ID，可为空                |
+| `related_id` | string | 关联业务 ID，可为空；视频任务消费和退款会使用上游任务 ID |
 | `remark`     | string | 备注                       |
-| `extra`      | json   | 扩展信息                     |
+| `extra`      | json   | 扩展信息，当前记录 AI 模型、接口路径和视频任务渠道绑定信息 |
 | `created_at` | string | 创建时间                     |
 
 `type` 当前取值：
@@ -193,3 +210,13 @@
 | `admin_adjust` | 后台手动调整 |
 | `ai_consume` | 调用后端模型接口消费 |
 | `ai_refund` | 后端模型接口调用失败返还 |
+
+`extra` 当前字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `model` | string | 本次 AI 消费或退款对应的模型名称 |
+| `path` | string | 本次 AI 消费或退款对应的代理路径，例如 `/images/generations`、`/videos` |
+| `taskId` | string | 视频任务 ID，仅视频任务相关流水使用 |
+| `channelName` | string | 创建视频任务时使用的渠道名称，用于后续轮询和下载精确匹配渠道 |
+| `channelBaseUrl` | string | 创建视频任务时使用的渠道 Base URL，用于后续轮询和下载定位渠道 |

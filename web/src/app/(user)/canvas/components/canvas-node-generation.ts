@@ -58,7 +58,17 @@ export function buildNodeChatMessages(context: NodeGenerationContext): ChatCompl
 
 export async function hydrateNodeGenerationContext(context: NodeGenerationContext) {
     const { imageToDataUrl } = await import("@/services/image-storage");
-    return { ...context, referenceImages: await Promise.all(context.referenceImages.map(async (image) => ({ ...image, dataUrl: await imageToDataUrl(image) }))) };
+    return { ...context, referenceImages: await hydrateReferenceImages(context.referenceImages, imageToDataUrl) };
+}
+
+export async function hydrateReferenceImages(referenceImages: ReferenceImage[], imageToDataUrl: (image: ReferenceImage) => Promise<string>) {
+    return Promise.all(
+        referenceImages.map(async (image) => {
+            const dataUrl = await imageToDataUrl(image);
+            if (!dataUrl) throw new Error("参考图片已丢失，无法继续生成");
+            return { ...image, dataUrl };
+        }),
+    );
 }
 
 function readNodeTextInput(node: CanvasNodeData) {

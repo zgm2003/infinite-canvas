@@ -2,6 +2,21 @@
 
 本文档用于约束本项目中的 AI / 自动化开发行为。开发时优先遵循本文件，其次遵循用户当前消息。
 
+## 冷启动入口
+
+- 新会话先读 `docs/README.md`，再按任务读专项文档和代码。
+- 当前真实状态看 `docs/status/current-status.md`，不要靠聊天记录、旧计划或猜测判断项目进度。
+- 发现文档与运行时冲突时，按 `docs/README.md` 的真相源顺序处理，并优先修正文档口径。
+- 初始问题台账看 `docs/audit/initial-review.md`；审查台账不是已修复证明，后续必须按窄切片逐个处理。
+
+## Agent 分工
+
+- Agent 框架说明在 `docs/architecture/agent-framework.md`。
+- 需要拆任务时，先选一个主角色：`agents/architect.md`、`agents/backend-worker.md`、`agents/frontend-worker.md`、`agents/reviewer.md`。
+- 不要让一个 agent 同时做架构、后端、前端、文档和审查；混合任务先由 Architect 拆成可审查的窄切片。
+- 每个角色只改自己职责内文件；Reviewer 负责查越界、事实和证据，不负责顺手重构。
+- Worker 因当前切片造成的必要事实文档同步属于本切片职责；泛 README、features、架构治理类文档改动才需要 Architect 拆文档切片。
+
 ## 基本原则
 
 - 先读现有代码，再动手修改，优先沿用项目已有结构和写法。
@@ -22,7 +37,7 @@
 ## 后端规范
 
 - 后端使用 Go + Gin + GORM。
-- `handler/` 只处理 HTTP 入参、调用 service、返回 `OK` / `Fail`。
+- `handler/` 只处理 HTTP 入参、调用 service、返回 `OK` / `Fail` / `FailStatus` / `FailError`；service typed error 统一走 `FailError`。
 - `service/` 放业务逻辑、默认值、校验、时间、ID、鉴权等处理。
 - `repository/` 只做数据库访问和 GORM 查询。
 - `model/` 只定义数据结构、枚举和简单模型方法。
@@ -88,5 +103,5 @@
 ## 项目注意事项
 
 - 当前画布项目和“我的素材”主要保存在浏览器本地，不要在文档中误写成已支持云同步。
-- 当前 AI API Key 存在浏览器本地，并由前端直接请求 OpenAI 兼容接口；涉及安全说明时要写清楚。
+- 当前 AI API Key 有本地直连和云端渠道两条边界：本地直连配置保存在浏览器本地并由前端请求上游；云端渠道密钥保存在后端私有配置并由 `/api/v1/*` 代理使用。涉及安全说明时必须区分两者。
 - Docker 静态资源路径目前仍是待办项，文档中不要过度承诺生产部署已经完全验证。

@@ -51,7 +51,9 @@ export function readImageMeta(dataUrl: string) {
 }
 
 export function dataUrlToFile(image: ReferenceImage) {
+    if (!image.dataUrl) throw new Error("参考图片已丢失，无法继续生成");
     const [header, content] = image.dataUrl.split(",", 2);
+    if (!header.startsWith("data:") || !content) throw new Error("参考图片格式无效，无法继续生成");
     const mimeType = header.match(/data:(.*?);base64/)?.[1] || image.type || "image/png";
     const binary = atob(content || "");
     const bytes = new Uint8Array(binary.length);

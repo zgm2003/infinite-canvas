@@ -13,16 +13,28 @@ const defaultPromptSyncCron = "*/5 * * * *"
 
 var (
 	promptSyncCron *cron.Cron
-	promptSyncOnce sync.Once
 	promptSyncMu   sync.Mutex
 )
 
 func StartPromptSyncScheduler() {
-	promptSyncOnce.Do(func() {
+	promptSyncMu.Lock()
+	if promptSyncCron == nil {
 		promptSyncCron = cron.New()
 		promptSyncCron.Start()
-	})
+	}
+	promptSyncMu.Unlock()
 	RefreshPromptSyncScheduler()
+}
+
+func StopPromptSyncScheduler() {
+	promptSyncMu.Lock()
+	current := promptSyncCron
+	promptSyncCron = nil
+	promptSyncMu.Unlock()
+	if current == nil {
+		return
+	}
+	<-current.Stop().Done()
 }
 
 func RefreshPromptSyncScheduler() {

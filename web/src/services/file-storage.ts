@@ -2,6 +2,7 @@
 
 import localforage from "localforage";
 import { nanoid } from "nanoid";
+import { resolveMissingStorageFallback } from "@/services/storage-fallback";
 
 export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number };
 
@@ -23,7 +24,7 @@ export async function resolveMediaUrl(storageKey?: string, fallback = "") {
     const cached = objectUrls.get(storageKey);
     if (cached) return cached;
     const blob = await store.getItem<Blob>(storageKey);
-    if (!blob) return fallback;
+    if (!blob) return resolveMissingStorageFallback(fallback);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     return url;

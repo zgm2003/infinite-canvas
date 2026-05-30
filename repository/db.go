@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,35 +26,96 @@ var promptCategories = []model.PromptCategory{
 }
 
 var (
-	db     *gorm.DB
-	dbOnce sync.Once
-	dbErr  error
+	db    *gorm.DB
+	dbKey string
+	dbMu  sync.Mutex
 )
 
 // DB 初始化并返回全局数据库连接。
 func DB() (*gorm.DB, error) {
-	dbOnce.Do(func() {
-		driver := strings.ToLower(strings.TrimSpace(config.Cfg.StorageDriver))
-		if driver == "" {
-			driver = "sqlite"
+	dbMu.Lock()
+	defer dbMu.Unlock()
+	driver := strings.ToLower(strings.TrimSpace(config.Cfg.StorageDriver))
+	if driver == "" {
+		driver = "sqlite"
+	}
+	dsn := config.Cfg.DatabaseDSN
+	key := fmt.Sprintf("%s\x00%s\x00%t", driver, dsn, config.Cfg.AutoMigrate)
+	if db != nil && dbKey == key {
+		return db, nil
+	}
+	if db != nil && dbKey != key {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
 		}
-		dsn := config.Cfg.DatabaseDSN
-		if driver == "sqlite" && dsn != ":memory:" {
-			_ = os.MkdirAll(filepath.Dir(dsn), 0755)
+		db = nil
+		dbKey = ""
+	}
+	if driver == "sqlite" && dsn != ":memory:" {
+		_ = os.MkdirAll(filepath.Dir(dsn), 0755)
+	}
+	database, err := gorm.Open(dialector(driver, dsn), &gorm.Config{})
+	if err != nil {
+		return nil, err
+	}
+	if config.Cfg.AutoMigrate {
+		if err := migrate(database); err != nil {
+			if sqlDB, dbErr := database.DB(); dbErr == nil {
+				_ = sqlDB.Close()
+			}
+			return nil, err
 		}
-		db, dbErr = gorm.Open(dialector(driver, dsn), &gorm.Config{})
-		if dbErr != nil {
-			return
+	}
+	db = database
+	dbKey = key
+	return db, nil
+}
+
+func Migrate() error {
+	database, err := DB()
+	if err != nil {
+		return err
+	}
+	return migrate(database)
+}
+
+func EnsureMigrated() error {
+	database, err := DB()
+	if err != nil {
+		return err
+	}
+	for _, item := range migratedModels() {
+		if !database.Migrator().HasTable(item) {
+			return fmt.Errorf("missing table for %T", item)
 		}
-		dbErr = db.AutoMigrate(
-			&model.User{},
-			&model.CreditLog{},
-			&model.Prompt{},
-			&model.Asset{},
-			&model.Setting{},
-		)
-	})
-	return db, dbErr
+		statement := &gorm.Statement{DB: database}
+		if err := statement.Parse(item); err != nil {
+			return err
+		}
+		for _, field := range statement.Schema.Fields {
+			if field.DBName == "" {
+				continue
+			}
+			if !database.Migrator().HasColumn(item, field.DBName) {
+				return fmt.Errorf("missing column %s.%s", statement.Schema.Table, field.DBName)
+			}
+		}
+	}
+	return nil
+}
+
+func migrate(database *gorm.DB) error {
+	return database.AutoMigrate(migratedModels()...)
+}
+
+func migratedModels() []any {
+	return []any{
+		&model.User{},
+		&model.CreditLog{},
+		&model.Prompt{},
+		&model.Asset{},
+		&model.Setting{},
+	}
 }
 
 func dialector(driver string, dsn string) gorm.Dialector {

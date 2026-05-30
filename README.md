@@ -26,11 +26,13 @@
 
 - 前端：Next.js、React、TypeScript、Tailwind CSS、Ant Design、Zustand、TanStack Query。
 - 后端：Go、Gin、GORM。
-- 部署：Docker。
+- 部署入口：Docker；生产部署、长期运行和静态资源路径仍以当前状态文档/待测项为准。
 
 ## 快速开始
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/basketikun/infinite-canvas)
+
+Docker 是当前推荐启动入口；生产部署和长期运行仍需按待测验收手册确认。
 
 ```bash
 git clone git@github.com:basketikun/infinite-canvas.git
@@ -46,6 +48,17 @@ docker-compose up -d
 cp .env.example .env
 docker compose -f docker-compose.local.yml up -d --build
 ```
+
+如果直接用源码启动 Go 后端，先执行一次显式迁移：
+
+```bash
+go run . migrate
+go run .
+```
+
+普通服务启动已接入应用表和字段检查；未迁移或旧 schema 缺字段时会直接失败并提示先执行显式迁移。验收状态见 [待测验收手册](docs/testing/pending-test-acceptance.md)。
+
+Docker 镜像运行入口已接入内部 Go API 和 Next.js 子进程监督；任一进程退出时容器退出的真实容器验收见 [待测验收手册](docs/testing/pending-test-acceptance.md)。
 
 运行后默认端口3000，可访问 `http://localhost:3000`。
 
@@ -70,14 +83,18 @@ docker compose -f docker-compose.local.yml up -d --build
 
 ## 文档
 
+- [项目冷启动入口](docs/README.md)
+- [当前状态](docs/status/current-status.md)
 - [功能介绍](docs/features.md)
 - [部署说明](docs/deployment.md)
 - [画布节点操作手册](docs/canvas-node-manual.md)
 - [画布快捷键](docs/canvas-shortcuts.md)
 - [待办事项](docs/todo.md)
+- [待测验收手册](docs/testing/pending-test-acceptance.md)
 - [后端数据库说明](docs/backend-database.md)
 - [系统配置数据结构](docs/system-settings.md)
 - [接口响应约定](docs/api-response.md)
+- [初始问题审查](docs/audit/initial-review.md)
 
 ## 社区支持
 

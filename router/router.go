@@ -12,16 +12,36 @@ func New() *gin.Engine {
 	router := gin.Default()
 	router.RedirectTrailingSlash = false
 	_ = router.SetTrustedProxies(nil)
+
 	api := router.Group("/api")
+	registerPublicRoutes(api)
+	registerAuthRoutes(api)
+	registerAIRoutes(api)
+	registerAdminRoutes(api)
+
+	router.NoRoute(middleware.NotFoundJSON)
+
+	return router
+}
+
+func registerPublicRoutes(api *gin.RouterGroup) {
 	api.GET("/health", func(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
 	})
+	api.GET("/settings", gin.WrapF(handler.Settings))
+	api.GET("/prompts", middleware.OptionalAuth, gin.WrapF(handler.Prompts))
+	api.GET("/assets", middleware.OptionalAuth, gin.WrapF(handler.Assets))
+}
+
+func registerAuthRoutes(api *gin.RouterGroup) {
 	api.POST("/auth/register", gin.WrapF(handler.Register))
 	api.POST("/auth/login", gin.WrapF(handler.Login))
 	api.GET("/auth/linux-do/authorize", gin.WrapF(handler.LinuxDoAuthorize))
 	api.GET("/auth/linux-do/callback", gin.WrapF(handler.LinuxDoCallback))
 	api.GET("/auth/me", middleware.OptionalAuth, gin.WrapF(handler.CurrentUser))
-	api.GET("/settings", gin.WrapF(handler.Settings))
+}
+
+func registerAIRoutes(api *gin.RouterGroup) {
 	v1 := api.Group("/v1", middleware.UserAuth)
 	v1.POST("/images/generations", gin.WrapF(handler.AIImagesGenerations))
 	v1.POST("/images/edits", gin.WrapF(handler.AIImagesEdits))
@@ -33,8 +53,9 @@ func New() *gin.Engine {
 	v1.GET("/videos/:id/content", func(c *gin.Context) {
 		handler.AIVideoContent(c.Writer, c.Request, c.Param("id"))
 	})
-	api.GET("/prompts", middleware.OptionalAuth, gin.WrapF(handler.Prompts))
-	api.GET("/assets", middleware.OptionalAuth, gin.WrapF(handler.Assets))
+}
+
+func registerAdminRoutes(api *gin.RouterGroup) {
 	api.POST("/admin/login", gin.WrapF(handler.AdminLogin))
 
 	admin := api.Group("/admin", middleware.AdminAuth)
@@ -68,8 +89,4 @@ func New() *gin.Engine {
 	admin.DELETE("/assets/:id", func(c *gin.Context) {
 		handler.AdminDeleteAsset(c.Writer, c.Request, c.Param("id"))
 	})
-
-	router.NoRoute(middleware.NotFoundJSON)
-
-	return router
 }

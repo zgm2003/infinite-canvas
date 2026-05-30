@@ -4,6 +4,7 @@ import localforage from "localforage";
 
 import { nanoid } from "nanoid";
 import { readImageMeta } from "@/lib/image-utils";
+import { resolveMissingStorageFallback } from "@/services/storage-fallback";
 
 export type UploadedImage = {
     url: string;
@@ -32,7 +33,7 @@ export async function resolveImageUrl(storageKey?: string, fallback = "") {
     const cached = objectUrls.get(storageKey);
     if (cached) return cached;
     const blob = await store.getItem<Blob>(storageKey);
-    if (!blob) return fallback;
+    if (!blob) return resolveMissingStorageFallback(fallback);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     return url;

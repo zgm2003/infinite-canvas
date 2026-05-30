@@ -7,11 +7,13 @@
         "dev": "next dev --webpack -H 0.0.0.0 -p 3000",
         "build": "next build",
         "start": "next start",
+        "test": "vitest run",
+        "typecheck": "tsc --noEmit --pretty false",
         "format": "prettier --write .",
         "format:check": "prettier --check ."
     },
     "dependencies": {
-        "@ant-design/icons": "^6.1.1",
+        "@ant-design/icons": "6.2.3",
         "@ant-design/nextjs-registry": "^1.3.0",
         "@ant-design/pro-components": "3.0.0-beta.3",
         "@codemirror/lang-json": "^6.0.2",
@@ -46,6 +48,7 @@
         "@types/react": "19.1.12",
         "@types/react-dom": "19.1.9",
         "prettier": "^3.8.3",
-        "typescript": "^5"
+        "typescript": "^5",
+        "vitest": "^4.1.7"
     }
 }

@@ -83,7 +83,7 @@ func AdminLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if session.User.Role != model.UserRoleAdmin {
-		Fail(w, "需要管理员权限")
+		FailStatus(w, http.StatusForbidden, "需要管理员权限")
 		return
 	}
 	OK(w, session)

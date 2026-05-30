@@ -79,6 +79,42 @@ func SaveUser(user model.User) (model.User, error) {
 	return user, db.Save(&user).Error
 }
 
+func AdjustUserCreditsWithLog(id string, credits int, log model.CreditLog, now string) (model.User, bool, error) {
+	db, err := DB()
+	if err != nil {
+		return model.User{}, false, err
+	}
+	user := model.User{}
+	ok := false
+	err = db.Transaction(func(tx *gorm.DB) error {
+		err := tx.Where("id = ?", id).First(&user).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		ok = true
+		oldCredits := user.Credits
+		user.Credits = credits
+		user.UpdatedAt = now
+		if err := tx.Save(&user).Error; err != nil {
+			return err
+		}
+		if oldCredits == credits {
+			return nil
+		}
+		log.UserID = user.ID
+		log.Amount = credits - oldCredits
+		log.Balance = credits
+		if err := tx.Create(&log).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	return user, ok, err
+}
+
 func ConsumeUserCredits(id string, credits int, now string) (model.User, bool, error) {
 	db, err := DB()
 	if err != nil {
@@ -97,6 +133,42 @@ func ConsumeUserCredits(id string, credits int, now string) (model.User, bool, e
 	}
 	user, ok, err := GetUserByID(id)
 	return user, ok && tx.RowsAffected > 0, err
+}
+
+func ConsumeUserCreditsWithLog(id string, credits int, log model.CreditLog, now string) (model.CreditLog, bool, error) {
+	db, err := DB()
+	if err != nil {
+		return log, false, err
+	}
+	ok := false
+	err = db.Transaction(func(tx *gorm.DB) error {
+		if credits > 0 {
+			result := tx.Model(&model.User{}).Where("id = ? AND credits >= ?", id, credits).Updates(map[string]any{
+				"credits":    gorm.Expr("credits - ?", credits),
+				"updated_at": now,
+			})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return nil
+			}
+		}
+		user := model.User{}
+		if err := tx.Where("id = ?", id).First(&user).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		log.Balance = user.Credits
+		if err := tx.Create(&log).Error; err != nil {
+			return err
+		}
+		ok = true
+		return nil
+	})
+	return log, ok, err
 }
 
 func RefundUserCredits(id string, credits int, now string) (model.User, bool, error) {
@@ -119,6 +191,40 @@ func RefundUserCredits(id string, credits int, now string) (model.User, bool, er
 	return user, ok && tx.RowsAffected > 0, err
 }
 
+func RefundUserCreditsWithLog(id string, credits int, log model.CreditLog, now string) (model.CreditLog, bool, error) {
+	db, err := DB()
+	if err != nil {
+		return log, false, err
+	}
+	if credits <= 0 {
+		return log, true, nil
+	}
+	ok := false
+	err = db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&model.User{}).Where("id = ?", id).Updates(map[string]any{
+			"credits":    gorm.Expr("credits + ?", credits),
+			"updated_at": now,
+		})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return nil
+		}
+		user := model.User{}
+		if err := tx.Where("id = ?", id).First(&user).Error; err != nil {
+			return err
+		}
+		log.Balance = user.Credits
+		if err := tx.Create(&log).Error; err != nil {
+			return err
+		}
+		ok = true
+		return nil
+	})
+	return log, ok, err
+}
+
 // SaveCreditLog 保存算力点变更流水。
 func SaveCreditLog(log model.CreditLog) (model.CreditLog, error) {
 	db, err := DB()
@@ -126,6 +232,50 @@ func SaveCreditLog(log model.CreditLog) (model.CreditLog, error) {
 		return log, err
 	}
 	return log, db.Save(&log).Error
+}
+
+func GetCreditLogByID(id string) (model.CreditLog, bool, error) {
+	db, err := DB()
+	if err != nil {
+		return model.CreditLog{}, false, err
+	}
+	log := model.CreditLog{}
+	err = db.Where("id = ?", id).First(&log).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return model.CreditLog{}, false, nil
+	}
+	return log, err == nil, err
+}
+
+func GetCreditLogByRelatedID(userID string, relatedID string, logType model.CreditLogType) (model.CreditLog, bool, error) {
+	db, err := DB()
+	if err != nil {
+		return model.CreditLog{}, false, err
+	}
+	log := model.CreditLog{}
+	err = db.Where("user_id = ? AND related_id = ? AND type = ?", userID, relatedID, logType).Order("created_at desc").First(&log).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return model.CreditLog{}, false, nil
+	}
+	return log, err == nil, err
+}
+
+func UpdateCreditLogTaskBinding(id string, relatedID string, extra string) error {
+	db, err := DB()
+	if err != nil {
+		return err
+	}
+	result := db.Model(&model.CreditLog{}).Where("id = ?", id).Updates(map[string]any{
+		"related_id": relatedID,
+		"extra":      extra,
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func ListCreditLogs(q model.Query) ([]model.CreditLog, int64, error) {
